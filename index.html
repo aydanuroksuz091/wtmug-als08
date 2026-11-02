@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>P2P Transfer – Web</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+<script src="qr.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>🖥️ P2P Transfer – Web</h1>
+  <span id="state" class="badge">bağlantı yok</span>
+</header>
+
+<main>
+  <section id="step-offer" class="card">
+    <h2>1) Telefonla QR'ı okutun</h2>
+    <p class="small">Bu QR, WebRTC teklifini (offer) içerir. Telefonunuzdaki <b>mobile.html</b> sayfası ile okutun.</p>
+    <div class="qr-box"><div id="offerQR"></div></div>
+    <details style="margin-top:10px">
+      <summary class="small">QR okutamıyorsanız – metni kopyalayın</summary>
+      <textarea id="offerText" readonly></textarea>
+      <button class="secondary" id="copyOffer">Kopyala</button>
+    </details>
+  </section>
+
+  <section id="step-answer" class="card hidden">
+    <h2>2) Telefondaki cevabı okutun</h2>
+    <p class="small">Telefon, QR okutunca size bir cevap QR'ı gösterecek. Kamerayı açıp onu okutun.</p>
+    <button id="startCam">📷 Kamerayı Aç</button>
+    <video id="video" class="hidden" autoplay playsinline muted></video>
+    <details style="margin-top:10px">
+      <summary class="small">Kamera yok / QR okutamıyorum – metni yapıştırın</summary>
+      <textarea id="answerText" placeholder="Telefondan gelen JSON'u buraya yapıştırın"></textarea>
+      <button id="applyAnswer">Uygula</button>
+    </details>
+  </section>
+
+  <section id="step-chat" class="card hidden">
+    <h2>💬 Sohbet</h2>
+    <div id="chat"></div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="msg" placeholder="Mesaj yazın…">
+      <button id="sendMsg">Gönder</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input type="file" id="file" multiple>
+      <button id="sendFile">Dosya Gönder</button>
+      <button class="secondary" id="disconnect">Bağlantıyı Kes</button>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { P2P } from './app.js';
+import { addMessage, addFileCard, makeProgress } from './ui.js';
+
+const $ = (id) => document.getElementById(id);
+const setState = (s, cls) => { $('state').textContent = s; $('state').className = 'badge ' + (cls || ''); };
+const chatEl = $('chat');
+let activeProgress = null;
+
+const p2p = new P2P({
+  onState: (s) => {
+    setState(s, s === 'connected' ? 'ok' : s === 'connecting' ? 'warn' : s === 'failed' || s === 'error' ? 'err' : '');
+    if (s === 'connected') {
+      $('step-answer').classList.add('hidden');
+      $('step-chat').classList.remove('hidden');
+      stopCam();
+    }
+  },
+  onMessage: ({ text }) => addMessage(chatEl, { who: 'them', text }),
+  onFileStart: (info) => {
+    activeProgress = makeProgress(chatEl);
+    activeProgress.update(0, info.size, 'recv');
+  },
+  onFileProgress: ({ direction, loaded, total }) => {
+    if (direction === 'recv' && activeProgress) activeProgress.update(loaded, total, 'recv');
+  },
+  onFileDone: ({ name, type, size, blob }) => {
+    activeProgress?.remove(); activeProgress = null;
+    const url = URL.createObjectURL(blob);
+    addFileCard(chatEl, { who: 'them', name, type, size, url, blob });
+  }
+});
+
+(async () => {
+  try {
+    const offerJson = await p2p.createOffer();
+    $('offerText').value = offerJson;
+    const canvas = await makeQR(offerJson, 320);
+    $('offerQR').innerHTML = '';
+    $('offerQR').appendChild(canvas);
+    $('step-answer').classList.remove('hidden');
+    setState('offer hazır', 'warn');
+  } catch (e) {
+    console.error(e);
+    setState('offer hatası', 'err');
+  }
+})();
+
+$('copyOffer').onclick = () => {
+  navigator.clipboard.writeText($('offerText').value);
+  $('copyOffer').textContent = 'Kopyalandı ✓';
+  setTimeout(() => $('copyOffer').textContent = 'Kopyala', 1200);
+};
+
+let camStop = null;
+function stopCam() {
+  camStop?.(); camStop = null;
+  const v = $('video');
+  v.srcObject?.getTracks().forEach(t => t.stop());
+  v.srcObject = null;
+  v.classList.add('hidden');
+}
+
+$('startCam').onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const v = $('video');
+    v.srcObject = stream;
+    v.classList.remove('hidden');
+    await v.play();
+    camStop = scanQR(v, async (data) => {
+      stopCam();
+      await applyAnswer(data);
+    });
+  } catch (e) {
+    alert('Kamera açılamadı: ' + e.message);
+  }
+};
+
+$('applyAnswer').onclick = () => applyAnswer($('answerText').value.trim());
+
+async function applyAnswer(text) {
+  if (!text) return;
+  try {
+    await p2p.acceptAnswer(text);
+    setState('bağlanıyor…', 'warn');
+  } catch (e) {
+    alert('Cevap uygulanamadı: ' + e.message);
+  }
+}
+
+$('sendMsg').onclick = () => {
+  const t = $('msg').value.trim();
+  if (!t) return;
+  if (p2p.sendText(t)) {
+    addMessage(chatEl, { who: 'me', text: t });
+    $('msg').value = '';
+  }
+};
+$('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('sendMsg').click(); });
+
+$('sendFile').onclick = async () => {
+  const files = Array.from($('file').files);
+  for (const f of files) {
+    const url = URL.createObjectURL(f);
+    addFileCard(chatEl, { who: 'me', name: f.name, type: f.type, size: f.size, url });
+    const prog = makeProgress(chatEl);
+    prog.update(0, f.size, 'send');
+    await p2p.sendFile(f);
+    prog.remove();
+  }
+  $('file').value = '';
+};
+
+$('disconnect').onclick = () => {
+  p2p.close();
+  $('step-chat').classList.add('hidden');
+  $('step-answer').classList.remove('hidden');
+};
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(console.error);
+}
+</script>
+</body>
+</html>
