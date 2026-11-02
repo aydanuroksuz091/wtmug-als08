@@ -1,3 +1,13 @@
+
+// QR metnini sıkıştırmak için LZString kütüphanesini yükle
+(function loadLZ() {
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js';
+  document.head.appendChild(s);
+})();
+
+
+
 // Harici kütüphaneler: qrcode-generator (üretim) + jsQR (okuma)
 (function loadScripts() {
   const s1 = document.createElement('script');
