@@ -1,3 +1,6 @@
+// Sıkıştırılmış QR metinlerini açmak için LZString'i hazır tut
+const LZString = window.LZString;
+
 export const CHUNK_SIZE = 16 * 1024;
 export const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
@@ -78,7 +81,10 @@ export class P2P {
   }
 
   async acceptOfferAndAnswer(offerJson) {
-    const desc = JSON.parse(offerJson);
+    // Gelen metin sıkıştırılmışsa (JSON değilse) LZString ile aç
+    const rawJson = offerJson.startsWith('{') ? offerJson : LZString.decompressFromEncodedURIComponent(offerJson);
+    
+    const desc = JSON.parse(rawJson);
     await this.pc.setRemoteDescription(desc);
     const ans = await this.pc.createAnswer();
     await this.pc.setLocalDescription(ans);
