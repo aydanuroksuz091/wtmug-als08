@@ -69,8 +69,8 @@ const p2p = new P2P({
     setState(s, s === 'connected' ? 'ok' : s === 'connecting' ? 'warn' : s === 'failed' || s === 'error' ? 'err' : '');
     if (s === 'connected') {
       $('step-answer').classList.add('hidden');
+      $('step-offer').classList.add('hidden');
       $('step-chat').classList.remove('hidden');
-      stopCam();
     }
   },
   onMessage: ({ text }) => addMessage(chatEl, { who: 'them', text }),
@@ -91,18 +91,36 @@ const p2p = new P2P({
 (async () => {
   try {
     const offerJson = await p2p.createOffer();
-    $('offerText').value = offerJson;
-    const canvas = await makeQR(offerJson, 320);
-    $('offerQR').innerHTML = '';
-    $('offerQR').appendChild(canvas);
+    
+    // Sıkıştırılmış offer'ı alalım
+    const compressed = LZString.compressToEncodedURIComponent(offerJson);
+    
+    // Telefonun açacağı linki oluştur (mobile.html?offer=...)
+    const baseUrl = window.location.href.replace('index.html', 'mobile.html');
+    const link = `${baseUrl}?offer=${compressed}`;
+    
+    // 1. Ekranda Link ve QR Göster
+    $('offerQR').innerHTML = `
+      <p class="small" style="margin-bottom:5px">iPhone kamerasını açın, aşağıdaki QR'ı okutun ve çıkan linke tıklayın:</p>
+      <div style="background:#fff;padding:10px;display:inline-block;border-radius:8px;" id="qr-container"></div>
+    `;
+    
+    // 2. QR'ı Link ile Oluştur (qr.js'deki sıkıştırmayı atlamak için direkt metin veriyoruz)
+    const canvas = await makeQR(link, 300);
+    $('qr-container').appendChild(canvas);
+    
+    // 3. Linki kopyalama seçeneği (Yedek)
+    $('offerText').value = link;
+
     $('step-answer').classList.remove('hidden');
-    setState('offer hazır', 'warn');
+    setState('link hazır', 'warn');
   } catch (e) {
     console.error(e);
     setState('offer hatası', 'err');
   }
-})();
+});
 
+// Aşağısı sohbet ve dosya transferi için (Aynen kalıyor)
 $('copyOffer').onclick = () => {
   navigator.clipboard.writeText($('offerText').value);
   $('copyOffer').textContent = 'Kopyalandı ✓';
