@@ -42,12 +42,14 @@ window.scanQR = function (videoEl, onResult) {
 
   const loop = () => {
     if (stopped) return;
-    if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
+    // Video hazır mı ve boyutları geçerli mi kontrol et
+    if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA && videoEl.videoWidth > 0) {
       canvas.width = videoEl.videoWidth;
       canvas.height = videoEl.videoHeight;
       ctx.drawImage(videoEl, 0, 0);
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      // inversionAttempts parametresini 'attemptBoth' yapmak bazen yardımcı olur
+      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
       if (code && code.data) {
         stopped = true;
         onResult(code.data);
